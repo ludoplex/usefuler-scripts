@@ -123,7 +123,7 @@ def list_jar_file_under_lib_dirs(lib_dirs, recursive):
             max_idx_str_len, idx, len(lib_dirs), lib_dir))
 
         if not exists(lib_dir):
-            print_error('WARN: lib dir %s not exists, ignored!' % lib_dir)
+            print_error(f'WARN: lib dir {lib_dir} not exists, ignored!')
             continue
 
         if not isdir(lib_dir):
@@ -131,13 +131,14 @@ def list_jar_file_under_lib_dirs(lib_dirs, recursive):
             continue
 
         if not recursive:
-            jar_files |= {p for p in glob(lib_dir + '/*.jar')}
+            jar_files |= set(glob(f'{lib_dir}/*.jar'))
             continue
 
         jar_files |= {
-            dir_path + '/' + filename
+            f'{dir_path}/{filename}'
             for dir_path, _, file_names in walk(lib_dir)
-            for filename in file_names if filename.lower().endswith('.jar')
+            for filename in file_names
+            if filename.lower().endswith('.jar')
         }
 
     return jar_files
@@ -166,12 +167,12 @@ def list_class_under_jar_file(jar_file, recursive, progress):
 
         jars_in_jar = {f for f in zf.namelist() if f.lower().endswith('.jar')}
         for jar in jars_in_jar:
-            next_jar_jar_path = jar_jar_path + '!' + jar
+            next_jar_jar_path = f'{jar_jar_path}!{jar}'
             try:
                 with ZipFile(BytesIO(zf.read(jar))) as f:
                     ret.update(list_zip_in_zip(next_jar_jar_path, f))
             except BadZipfile as e:
-                print_error('WARN: %s is bad zip file(%s), ignored!' % (next_jar_jar_path, e))
+                print_error(f'WARN: {next_jar_jar_path} is bad zip file({e}), ignored!')
 
         return ret
 
@@ -179,7 +180,7 @@ def list_class_under_jar_file(jar_file, recursive, progress):
         with ZipFile(jar_file) as zip_file:
             return list_zip_in_zip(jar_file, zip_file)
     except BadZipfile as error:
-        print_error('WARN: %s is bad zip file(%s), ignored!' % (jar_file, error))
+        print_error(f'WARN: {jar_file} is bad zip file({error}), ignored!')
         return {}
 
 
@@ -188,15 +189,18 @@ def list_class_under_class_dir(class_dir, progress):
         str_len(progress[1]), progress[0], progress[1], class_dir))
 
     if not exists(class_dir):
-        print_error('WARN: class dir %s not exists, ignored!' % class_dir)
+        print_error(f'WARN: class dir {class_dir} not exists, ignored!')
         return {}
     if not isdir(class_dir):
-        print_error('WARN: class dir %s is not dir, ignored!' % class_dir)
+        print_error(f'WARN: class dir {class_dir} is not dir, ignored!')
         return {}
 
-    return {relpath(dir_path + '/' + filename, class_dir)
-            for dir_path, _, file_names in walk(class_dir)
-            for filename in file_names if filename.lower().endswith('.class')}
+    return {
+        relpath(f'{dir_path}/{filename}', class_dir)
+        for dir_path, _, file_names in walk(class_dir)
+        for filename in file_names
+        if filename.lower().endswith('.class')
+    }
 
 
 def collect_class_path_to_classes(class_dirs, jar_files, recursive_jar):
@@ -207,8 +211,9 @@ def collect_class_path_to_classes(class_dirs, jar_files, recursive_jar):
     # list all classes in jar files
     for jar_file in jar_files:
         index += 1
-        class_path_to_classes.update(
-            list_class_under_jar_file(jar_file, recursive=recursive_jar, progress=(index, total_count)))
+        class_path_to_classes |= list_class_under_jar_file(
+            jar_file, recursive=recursive_jar, progress=(index, total_count)
+        )
     # list all classes in class dirs
     for class_dir in class_dirs:
         index += 1
@@ -252,8 +257,9 @@ def print_duplicate_classes_info(class_paths_to_duplicate_classes, class_path_to
 
     duplicate_classes_total_count = sum(len(dcs) for dcs in class_paths_to_duplicate_classes.values())
     class_paths_total_count = sum(len(cps) for cps in class_paths_to_duplicate_classes)
-    print('Found %s duplicate classes in %s class paths and %s class path sets:' % (
-        duplicate_classes_total_count, class_paths_total_count, len(class_paths_to_duplicate_classes)))
+    print(
+        f'Found {duplicate_classes_total_count} duplicate classes in {class_paths_total_count} class paths and {len(class_paths_to_duplicate_classes)} class path sets:'
+    )
 
     # sort key(class_paths) and value(duplicate_classes)
     class_paths_to_duplicate_classes = [(sorted(cps), sorted(dcs))
@@ -304,7 +310,7 @@ def print_class_paths_info(class_path_to_classes):
     max_classes_count_str_len = str_len(max(len(classes) for classes in class_path_to_classes.values()))
 
     class_path_to_classes = sorted(class_path_to_classes.items(), key=lambda item: item[0])
-    print_box_message('Find in %s class paths:' % len(class_path_to_classes))
+    print_box_message(f'Find in {len(class_path_to_classes)} class paths:')
     for idx, (cp, classes) in enumerate(class_path_to_classes, start=1):
         print('%*s: (contain %*s classes) %s' % (
             max_idx_str_len, idx, max_classes_count_str_len, len(classes), cp))
@@ -313,17 +319,18 @@ def print_class_paths_info(class_path_to_classes):
 def main():
     option_parser = OptionParser(
         usage='%prog [OPTION]...'
-              ' [-c class-dir1 [-c class-dir2] ...]'
-              ' [lib-dir1|jar-file1 [lib-dir2|jar-file2] ...]'
-              '\nFind duplicate classes among java lib dirs and class dirs.'
-              '\n\nExamples:'
-              '\n  %prog  # search jars from current dir'
-              '\n  %prog path/to/lib_dir1 /path/to/lib_dir2'
-              '\n  %prog -c path/to/class_dir1 -c /path/to/class_dir2'
-              '\n  %prog -c path/to/class_dir1 path/to/lib_dir1'
-              '\n  %prog -L path/to/lib_dir1'
-              '\n  %prog -J path/to/lib_dir1',
-        version='%prog ' + PROG_VERSION)
+        ' [-c class-dir1 [-c class-dir2] ...]'
+        ' [lib-dir1|jar-file1 [lib-dir2|jar-file2] ...]'
+        '\nFind duplicate classes among java lib dirs and class dirs.'
+        '\n\nExamples:'
+        '\n  %prog  # search jars from current dir'
+        '\n  %prog path/to/lib_dir1 /path/to/lib_dir2'
+        '\n  %prog -c path/to/class_dir1 -c /path/to/class_dir2'
+        '\n  %prog -c path/to/class_dir1 path/to/lib_dir1'
+        '\n  %prog -L path/to/lib_dir1'
+        '\n  %prog -J path/to/lib_dir1',
+        version=f'%prog {PROG_VERSION}',
+    )
     option_parser.add_option('-L', '--recursive-lib', dest='recursive_lib', default=False,
                              action='store_true', help='search jars in the sub-directories of lib dir')
     option_parser.add_option('-J', '--recursive-jar', dest='recursive_jar', default=False,
@@ -346,7 +353,7 @@ def main():
         print('search no jar files under lib dirs, and class dirs is absent.')
         return 0
     class_path_to_classes = collect_class_path_to_classes(class_dirs, jar_files, options.recursive_jar)
-    if all(not classes for classes in class_path_to_classes.values()):
+    if not any(class_path_to_classes.values()):
         clear_responsive_message()
         print('find no class files in jar files or class dirs.')
         return 0
